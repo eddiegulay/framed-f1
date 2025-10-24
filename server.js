@@ -54,7 +54,7 @@ function wrapProxyUrl(targetUrl, referer) {
   return `/proxy-any?target=${encodedTarget}${refererPart}`;
 }
 
-function rewriteContent(content, baseUrl) {
+function rewriteContent(content, baseUrl, options = {}) {
   let modified = false;
   let rewritten = content;
   let base;
@@ -65,7 +65,29 @@ function rewriteContent(content, baseUrl) {
     return { body: content, modified };
   }
 
-  const baseOrigin = base.origin;
+  const isLikelyHtml = /<html[\s>]/i.test(rewritten) || /<!DOCTYPE\s+html/i.test(rewritten);
+
+  if (options.injectSpoof !== false && isLikelyHtml && !rewritten.includes('__proxySpoofGuard')) {
+    const spoofScript = (() => {
+      const safeHref = JSON.stringify(base.href);
+      const safeOrigin = JSON.stringify(base.origin);
+      const safeProtocol = JSON.stringify(base.protocol);
+      const safeHost = JSON.stringify(base.host);
+      const safeHostname = JSON.stringify(base.hostname);
+      const safePathname = JSON.stringify(base.pathname);
+      const safeReferer = JSON.stringify(options.referer || base.href);
+      return `<script>(function(){try{if(window.__proxySpoofGuard){return;}window.__proxySpoofGuard=true;var fakeLoc={href:${safeHref},origin:${safeOrigin},protocol:${safeProtocol},host:${safeHost},hostname:${safeHostname},pathname:${safePathname},search:"",hash:""};fakeLoc.toString=function(){return fakeLoc.href;};var fakeLocation=new Proxy(fakeLoc,{get:function(target,key){if(key==='assign'||key==='replace'||key==='reload'){return function(){return;};}var value=target[key];return typeof value==='function'?value.bind(target):value;},set:function(){return true;}});var overrideLocation=function(target){if(!target)return;try{Object.defineProperty(target,'location',{get:function(){return fakeLocation;},set:function(){},configurable:true});}catch(err){}};overrideLocation(window);try{overrideLocation(window.top);}catch(err){}try{overrideLocation(window.parent);}catch(err){}try{Object.defineProperty(document,'referrer',{get:function(){return ${safeReferer};},configurable:true});}catch(err){}try{Object.defineProperty(document,'domain',{get:function(){return ${safeHostname};},set:function(){return true;},configurable:true});}catch(err){}try{Object.defineProperty(document,'origin',{get:function(){return ${safeOrigin};},configurable:true});}catch(err){}var sanitizeDetector=function(detector){if(!detector)return;['addListener','removeListener','launch','stop','setDetectDelay'].forEach(function(fn){if(typeof detector[fn]==='function'){detector[fn]=function(){return false;};}});if(typeof detector.isLaunch==='function'){detector.isLaunch=function(){return false;};}};Object.defineProperty(window,'devtoolsDetector',{configurable:true,get:function(){return window.__proxyDevtoolsStub;},set:function(value){sanitizeDetector(value);window.__proxyDevtoolsStub=value;}});if(window.devtoolsDetector){sanitizeDetector(window.devtoolsDetector);}setInterval(function(){sanitizeDetector(window.devtoolsDetector);},2000);try{Object.defineProperty(window,'top',{get:function(){return window;},set:function(){},configurable:true});}catch(err){}try{Object.defineProperty(window,'parent',{get:function(){return window;},set:function(){},configurable:true});}catch(err){}var originalSetInterval=window.setInterval;window.setInterval=function(handler,delay){if(typeof handler==='string'&&handler.indexOf('debugger')!==-1){return 0;}if(typeof handler==='function'){var text=handler.toString();if(text.indexOf('debugger')!==-1){return 0;}}return originalSetInterval(handler,delay);};var originalSetTimeout=window.setTimeout;window.setTimeout=function(handler,delay){if(typeof handler==='string'&&handler.indexOf('debugger')!==-1){return 0;}if(typeof handler==='function'){var text=handler.toString();if(text.indexOf('debugger')!==-1){return 0;}}return originalSetTimeout(handler,delay);};}catch(err){if(window.console&&window.console.debug){window.console.debug('proxy spoof error',err);} }})();</script>`;
+    })();
+
+    if (/<head[^>]*>/i.test(rewritten)) {
+      rewritten = rewritten.replace(/<head[^>]*>/i, match => `${match}${spoofScript}`);
+    } else if (/<html[^>]*>/i.test(rewritten)) {
+      rewritten = rewritten.replace(/<html[^>]*>/i, match => `${match}${spoofScript}`);
+    } else {
+      rewritten = spoofScript + rewritten;
+    }
+    modified = true;
+  }
 
   const skipUrl = value => {
     if (!value) return true;
@@ -107,7 +129,7 @@ function rewriteContent(content, baseUrl) {
     const resolved = safeResolve(urlValue);
     if (!resolved) return match;
     modified = true;
-    return `${prefix}${wrapProxyUrl(resolved, baseOrigin)}${quoteEnd}`;
+    return `${prefix}${quoteStart}${wrapProxyUrl(resolved, baseUrl)}${quoteEnd}`;
   });
 
   const srcsetPattern = /(srcset\s*=\s*["'])([^"']+)(["'])/gi;
@@ -121,7 +143,7 @@ function rewriteContent(content, baseUrl) {
         if (!resolved) return entry;
         const descriptor = parts.join(' ');
         modified = true;
-        return `${wrapProxyUrl(resolved, baseOrigin)}${descriptor ? ` ${descriptor}` : ''}`;
+        return `${wrapProxyUrl(resolved, baseUrl)}${descriptor ? ` ${descriptor}` : ''}`;
       })
       .join(', ');
     return `${prefix}${rewrittenList}${suffix}`;
@@ -132,7 +154,7 @@ function rewriteContent(content, baseUrl) {
     const resolved = safeResolve(urlValue);
     if (!resolved) return match;
     modified = true;
-    return `url('${wrapProxyUrl(resolved, baseOrigin)}')`;
+    return `url('${wrapProxyUrl(resolved, baseUrl)}')`;
   });
 
   const jsImportPattern = /(import\s+[^;]*from\s+['"])([^'"\s]+)(['"])/gi;
@@ -140,7 +162,7 @@ function rewriteContent(content, baseUrl) {
     const resolved = safeResolve(urlValue);
     if (!resolved) return match;
     modified = true;
-    return `${prefix}${wrapProxyUrl(resolved, baseOrigin)}${suffix}`;
+    return `${prefix}${wrapProxyUrl(resolved, baseUrl)}${suffix}`;
   });
 
   const jsBareImportPattern = /(import\s*\(\s*['"])([^'"\s]+)(['"]\s*\))/gi;
@@ -148,7 +170,23 @@ function rewriteContent(content, baseUrl) {
     const resolved = safeResolve(urlValue);
     if (!resolved) return match;
     modified = true;
-    return `${prefix}${wrapProxyUrl(resolved, baseOrigin)}${suffix}`;
+    return `${prefix}${wrapProxyUrl(resolved, baseUrl)}${suffix}`;
+  });
+
+  const simpleFrameBustPatterns = [
+    /if\s*\(\s*(?:window|self)\s*==\s*(?:window\.)?top\s*\)/gi,
+    /if\s*\(\s*(?:top|parent)\s*==\s*(?:window|self)\s*\)/gi,
+    /if\s*\(\s*(?:window|self)\s*!==\s*(?:window\.)?top\s*\)/gi,
+    /if\s*\(\s*(?:window|self)\s*!=\s*(?:window\.)?top\s*\)/gi
+  ];
+  simpleFrameBustPatterns.forEach(pattern => {
+    rewritten = rewritten.replace(pattern, match => {
+      if (/&&\s*false/.test(match)) {
+        return match;
+      }
+      modified = true;
+      return match.replace(/\)\s*$/, ' && false)');
+    });
   });
 
   return { body: rewritten, modified };
@@ -178,87 +216,9 @@ app.get('/stream-proxy/*', async (req, res) => {
       timeout: 30000
     });
     
-  let content = Buffer.from(response.data).toString('utf-8');
-    
-    // INJECT DOMAIN SPOOFING SCRIPT AT THE VERY TOP (before any other scripts)
-    const spoofScript = `
-<script>
-// ⚡ ULTIMATE DOMAIN SPOOF - Executes BEFORE page JS loads ⚡
-(function() {
-  // Override window.location to fake the origin
-  Object.defineProperty(window, 'location', {
-    get: function() {
-      return {
-        href: 'https://sportzonline.live${req.path.replace('/stream-proxy', '')}',
-        hostname: 'sportzonline.live',
-        origin: 'https://sportzonline.live',
-        protocol: 'https:',
-        host: 'sportzonline.live',
-        pathname: '${req.path.replace('/stream-proxy', '')}',
-        toString: function() { return this.href; }
-      };
-    },
-    configurable: false
-  });
-  
-  // Override document.domain
-  try {
-    Object.defineProperty(document, 'domain', {
-      get: function() { return 'sportzonline.live'; },
-      set: function() {},
-      configurable: false
-    });
-  } catch(e) {}
-  
-  // Override document.referrer
-  Object.defineProperty(document, 'referrer', {
-    get: function() { return 'https://sportzonline.live/'; },
-    configurable: false
-  });
-  
-  // Neutralize frame-busting BEFORE it loads
-  window.top = window.self;
-  window.parent = window.self;
-  Object.defineProperty(window, 'frameElement', {
-    get: function() { return null; }
-  });
-  
-  // Disable ALL frame-busting patterns
-  const originalSetInterval = window.setInterval;
-  const originalSetTimeout = window.setTimeout;
-  
-  window.setInterval = function(fn, delay) {
-    const fnStr = fn.toString();
-    if (fnStr.includes('top.location') || fnStr.includes('parent.location')) {
-      console.log('🛡️ Blocked frame-bust interval');
-      return -1;
-    }
-    return originalSetInterval.apply(this, arguments);
-  };
-  
-  window.setTimeout = function(fn, delay) {
-    const fnStr = fn.toString();
-    if (fnStr.includes('top.location') || fnStr.includes('parent.location')) {
-      console.log('🛡️ Blocked frame-bust timeout');
-      return -1;
-    }
-    return originalSetTimeout.apply(this, arguments);
-  };
-  
-  console.log('✅ Domain spoofed to sportzonline.live');
-})();
-</script>`;
-    
-    // Inject BEFORE <head> or at the very beginning
-    if (content.includes('<head>')) {
-      content = content.replace('<head>', '<head>' + spoofScript);
-    } else if (content.includes('<html>')) {
-      content = content.replace('<html>', '<html>' + spoofScript);
-    } else {
-      content = spoofScript + content;
-    }
+    let content = Buffer.from(response.data).toString('utf-8');
 
-    const rewriteResult = rewriteContent(content, targetUrl);
+    const rewriteResult = rewriteContent(content, targetUrl, { referer: targetUrl });
     content = rewriteResult.body;
 
     res.set('Content-Type', 'text/html; charset=utf-8');
@@ -325,7 +285,7 @@ app.get('/proxy-any', async (req, res) => {
     let modified = false;
 
     if (isText) {
-      const rewriteResult = rewriteContent(content, targetUrl);
+  const rewriteResult = rewriteContent(content, targetUrl, { referer: refererHeader });
       content = rewriteResult.body;
       modified = rewriteResult.modified;
 
@@ -465,7 +425,7 @@ app.get('/browser-proxy/*', async (req, res) => {
       `);
     } else {
       // Fallback: Return the full rendered HTML
-      const rewriteResult = rewriteContent(await page.content(), targetUrl);
+  const rewriteResult = rewriteContent(await page.content(), targetUrl, { referer: targetUrl });
       res.set('Content-Type', 'text/html; charset=utf-8');
       res.send(rewriteResult.body);
     }
@@ -550,7 +510,7 @@ app.get('/proxy/*', async (req, res) => {
         }
       });
 
-      const rewriteResult = rewriteContent(content, targetUrl);
+  const rewriteResult = rewriteContent(content, targetUrl, { referer: targetUrl });
       content = rewriteResult.body;
       modified = modified || rewriteResult.modified;
 
