@@ -1,10 +1,488 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const { URL } = require('url');
 const app = express();
+
+// Puppeteer setup (lazy load - only when needed)
+let puppeteer;
+let browser;
+
+async function getBrowser() {
+  if (!browser) {
+    if (!puppeteer) {
+      try {
+        // Try puppeteer first
+        puppeteer = require('puppeteer');
+      } catch (err) {
+        try {
+          // Fallback to puppeteer-core with system chrome
+          puppeteer = require('puppeteer-core');
+        } catch (err2) {
+          console.error('❌ Puppeteer not installed. Run: npm install puppeteer');
+          throw new Error('Puppeteer not available. Install with: npm install puppeteer');
+        }
+      }
+    }
+    
+    const launchOptions = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+        '--window-size=1920x1080',
+        '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+      ]
+    };
+    
+    // Try to use system chrome if puppeteer-core
+    if (puppeteer.constructor.name === 'Object') {
+      launchOptions.executablePath = '/usr/bin/google-chrome' || '/usr/bin/chromium-browser' || '/usr/bin/chromium';
+    }
+    
+    browser = await puppeteer.launch(launchOptions);
+  }
+  return browser;
+}
+
+function wrapProxyUrl(targetUrl, referer) {
+  const encodedTarget = encodeURIComponent(targetUrl);
+  const refererPart = referer ? `&referer=${encodeURIComponent(referer)}` : '';
+  return `/proxy-any?target=${encodedTarget}${refererPart}`;
+}
+
+function rewriteContent(content, baseUrl) {
+  let modified = false;
+  let rewritten = content;
+  let base;
+
+  try {
+    base = new URL(baseUrl);
+  } catch (err) {
+    return { body: content, modified };
+  }
+
+  const baseOrigin = base.origin;
+
+  const skipUrl = value => {
+    if (!value) return true;
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('data:')) return true;
+    if (lower.startsWith('javascript:')) return true;
+    if (lower.startsWith('mailto:')) return true;
+    if (lower.startsWith('tel:')) return true;
+    if (trimmed.startsWith('#')) return true;
+    if (trimmed.startsWith('/proxy/')) return true;
+    if (trimmed.startsWith('/proxy-any')) return true;
+    return false;
+  };
+
+  const safeResolve = rawUrl => {
+    if (skipUrl(rawUrl)) return null;
+    try {
+      return new URL(rawUrl, base).toString();
+    } catch (err) {
+      return null;
+    }
+  };
+
+  // Remove meta redirects and CSP early
+  rewritten = rewritten.replace(/<meta\s+http-equiv=["']?refresh["']?[^>]*>/gi, () => {
+    modified = true;
+    return '';
+  });
+
+  rewritten = rewritten.replace(/<meta\s+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, () => {
+    modified = true;
+    return '';
+  });
+
+  const attributePattern = /((?:src|href|poster|data)\s*=\s*)(["'])([^"']+)(["'])/gi;
+  rewritten = rewritten.replace(attributePattern, (match, prefix, quoteStart, urlValue, quoteEnd) => {
+    const resolved = safeResolve(urlValue);
+    if (!resolved) return match;
+    modified = true;
+    return `${prefix}${wrapProxyUrl(resolved, baseOrigin)}${quoteEnd}`;
+  });
+
+  const srcsetPattern = /(srcset\s*=\s*["'])([^"']+)(["'])/gi;
+  rewritten = rewritten.replace(srcsetPattern, (match, prefix, list, suffix) => {
+    const rewrittenList = list
+      .split(',')
+      .map(entry => {
+        const parts = entry.trim().split(/\s+/);
+        const urlPart = parts.shift();
+        const resolved = safeResolve(urlPart);
+        if (!resolved) return entry;
+        const descriptor = parts.join(' ');
+        modified = true;
+        return `${wrapProxyUrl(resolved, baseOrigin)}${descriptor ? ` ${descriptor}` : ''}`;
+      })
+      .join(', ');
+    return `${prefix}${rewrittenList}${suffix}`;
+  });
+
+  const cssUrlPattern = /url\(\s*['"]?([^'"\)]+)['"]?\s*\)/gi;
+  rewritten = rewritten.replace(cssUrlPattern, (match, urlValue) => {
+    const resolved = safeResolve(urlValue);
+    if (!resolved) return match;
+    modified = true;
+    return `url('${wrapProxyUrl(resolved, baseOrigin)}')`;
+  });
+
+  const jsImportPattern = /(import\s+[^;]*from\s+['"])([^'"\s]+)(['"])/gi;
+  rewritten = rewritten.replace(jsImportPattern, (match, prefix, urlValue, suffix) => {
+    const resolved = safeResolve(urlValue);
+    if (!resolved) return match;
+    modified = true;
+    return `${prefix}${wrapProxyUrl(resolved, baseOrigin)}${suffix}`;
+  });
+
+  const jsBareImportPattern = /(import\s*\(\s*['"])([^'"\s]+)(['"]\s*\))/gi;
+  rewritten = rewritten.replace(jsBareImportPattern, (match, prefix, urlValue, suffix) => {
+    const resolved = safeResolve(urlValue);
+    if (!resolved) return match;
+    modified = true;
+    return `${prefix}${wrapProxyUrl(resolved, baseOrigin)}${suffix}`;
+  });
+
+  return { body: rewritten, modified };
+}
 
 // Serve static files (HTML, CSS, JS)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Advanced stream proxy - Injects domain spoofing scripts BEFORE page loads
+app.get('/stream-proxy/*', async (req, res) => {
+  const targetPath = req.params[0];
+  const targetUrl = `https://sportzonline.live/${targetPath}`;
+  
+  console.log(`🎯 Stream-proxying: ${targetUrl}`);
+  
+  try {
+    const response = await axios.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://sportzonline.live/',
+        'Origin': 'https://sportzonline.live'
+      },
+      responseType: 'arraybuffer',
+      validateStatus: () => true,
+      timeout: 30000
+    });
+    
+  let content = Buffer.from(response.data).toString('utf-8');
+    
+    // INJECT DOMAIN SPOOFING SCRIPT AT THE VERY TOP (before any other scripts)
+    const spoofScript = `
+<script>
+// ⚡ ULTIMATE DOMAIN SPOOF - Executes BEFORE page JS loads ⚡
+(function() {
+  // Override window.location to fake the origin
+  Object.defineProperty(window, 'location', {
+    get: function() {
+      return {
+        href: 'https://sportzonline.live${req.path.replace('/stream-proxy', '')}',
+        hostname: 'sportzonline.live',
+        origin: 'https://sportzonline.live',
+        protocol: 'https:',
+        host: 'sportzonline.live',
+        pathname: '${req.path.replace('/stream-proxy', '')}',
+        toString: function() { return this.href; }
+      };
+    },
+    configurable: false
+  });
+  
+  // Override document.domain
+  try {
+    Object.defineProperty(document, 'domain', {
+      get: function() { return 'sportzonline.live'; },
+      set: function() {},
+      configurable: false
+    });
+  } catch(e) {}
+  
+  // Override document.referrer
+  Object.defineProperty(document, 'referrer', {
+    get: function() { return 'https://sportzonline.live/'; },
+    configurable: false
+  });
+  
+  // Neutralize frame-busting BEFORE it loads
+  window.top = window.self;
+  window.parent = window.self;
+  Object.defineProperty(window, 'frameElement', {
+    get: function() { return null; }
+  });
+  
+  // Disable ALL frame-busting patterns
+  const originalSetInterval = window.setInterval;
+  const originalSetTimeout = window.setTimeout;
+  
+  window.setInterval = function(fn, delay) {
+    const fnStr = fn.toString();
+    if (fnStr.includes('top.location') || fnStr.includes('parent.location')) {
+      console.log('🛡️ Blocked frame-bust interval');
+      return -1;
+    }
+    return originalSetInterval.apply(this, arguments);
+  };
+  
+  window.setTimeout = function(fn, delay) {
+    const fnStr = fn.toString();
+    if (fnStr.includes('top.location') || fnStr.includes('parent.location')) {
+      console.log('🛡️ Blocked frame-bust timeout');
+      return -1;
+    }
+    return originalSetTimeout.apply(this, arguments);
+  };
+  
+  console.log('✅ Domain spoofed to sportzonline.live');
+})();
+</script>`;
+    
+    // Inject BEFORE <head> or at the very beginning
+    if (content.includes('<head>')) {
+      content = content.replace('<head>', '<head>' + spoofScript);
+    } else if (content.includes('<html>')) {
+      content = content.replace('<html>', '<html>' + spoofScript);
+    } else {
+      content = spoofScript + content;
+    }
+
+    const rewriteResult = rewriteContent(content, targetUrl);
+    content = rewriteResult.body;
+
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('X-Frame-Options', 'ALLOWALL');
+    res.set('Content-Security-Policy', "frame-ancestors 'self' *");
+    res.set('Access-Control-Allow-Origin', '*');
+    res.removeHeader('X-Content-Type-Options');
+    
+    res.send(content);
+    console.log(`✅ Stream-proxied with domain spoof: ${targetUrl}`);
+    
+  } catch (error) {
+    console.error(`❌ Stream proxy failed: ${error.message}`);
+    res.status(500).send(`Error: ${error.message}`);
+  }
+});
+
+// Generic proxy for any absolute URL (preserves referer/origin expectations)
+app.get('/proxy-any', async (req, res) => {
+  const targetUrl = req.query.target;
+  if (!targetUrl) {
+    return res.status(400).send('Missing target');
+  }
+
+  let referer = req.query.referer;
+  let targetLocation;
+
+  try {
+    targetLocation = new URL(targetUrl);
+  } catch (err) {
+    return res.status(400).send('Invalid target URL');
+  }
+
+  const originFallback = `${targetLocation.protocol}//${targetLocation.host}`;
+  const refererHeader = referer || `${originFallback}/`;
+  let originHeader = originFallback;
+
+  if (referer) {
+    try {
+      originHeader = new URL(referer).origin;
+    } catch (err) {
+      originHeader = originFallback;
+    }
+  }
+
+  try {
+    const response = await axios.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': refererHeader,
+  'Origin': originHeader,
+        'Connection': 'keep-alive'
+      },
+      responseType: 'arraybuffer',
+      validateStatus: () => true,
+      timeout: 30000
+    });
+
+    const contentType = response.headers['content-type'] || '';
+    const isText = contentType.includes('text/') || contentType.includes('javascript') || contentType.includes('json');
+    let content = isText ? Buffer.from(response.data).toString('utf-8') : response.data;
+    let modified = false;
+
+    if (isText) {
+      const rewriteResult = rewriteContent(content, targetUrl);
+      content = rewriteResult.body;
+      modified = rewriteResult.modified;
+
+      if (contentType) res.set('Content-Type', contentType);
+      res.set('X-Frame-Options', 'ALLOWALL');
+      res.set('Content-Security-Policy', "frame-ancestors 'self' *");
+      res.set('Access-Control-Allow-Origin', '*');
+      res.status(response.status).send(content);
+      console.log(`${modified ? '✏️' : 'ℹ️'} Proxy-any (${response.status}): ${targetUrl}`);
+    } else {
+      if (contentType) res.set('Content-Type', contentType);
+      res.status(response.status).send(content);
+      console.log(`📦 Proxy-any binary (${response.status}): ${targetUrl}`);
+    }
+
+  } catch (error) {
+    console.error(`❌ Proxy-any failed for ${targetUrl}: ${error.message}`);
+    res.status(500).send(`Error proxying ${targetUrl}: ${error.message}`);
+  }
+});
+
+// Browser-based proxy (requires Puppeteer)
+app.get('/browser-proxy/*', async (req, res) => {
+  const targetPath = req.params[0];
+  const targetUrl = `https://sportzonline.live/${targetPath}`;
+  
+  console.log(`🌐 Browser-proxying: ${targetUrl}`);
+  
+  try {
+    const browserInstance = await getBrowser();
+    const page = await browserInstance.newPage();
+    
+    // Set viewport and extra headers
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://sportzonline.live/'
+    });
+    
+    // Track network requests to capture video URLs
+    const resources = [];
+    page.on('request', request => {
+      const url = request.url();
+      const type = request.resourceType();
+      if (type === 'media' || url.includes('.m3u8') || url.includes('.mp4') || url.includes('.ts')) {
+        console.log(`📹 Captured stream: ${url}`);
+        resources.push(url);
+      }
+    });
+    
+    // Navigate and wait for network idle
+    await page.goto(targetUrl, {
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    });
+    
+    // Wait a bit for any delayed JS execution
+    await page.waitForTimeout(3000);
+    
+    // Try to find iframe with video player
+    const iframes = await page.$$('iframe');
+    console.log(`🔍 Found ${iframes.length} iframes`);
+    
+    let videoUrl = null;
+    
+    // Check captured network requests first
+    if (resources.length > 0) {
+      videoUrl = resources[0];
+      console.log(`✅ Found video URL from network: ${videoUrl}`);
+    } else {
+      // Fallback: Try to extract from iframe src or video tags
+      for (const iframe of iframes) {
+        const src = await iframe.evaluate(el => el.src);
+        if (src && (src.includes('embed') || src.includes('player'))) {
+          console.log(`🎯 Found player iframe: ${src}`);
+          // Navigate to iframe
+          const iframePage = await browserInstance.newPage();
+          await iframePage.goto(src, { waitUntil: 'networkidle2', timeout: 30000 });
+          await iframePage.waitForTimeout(2000);
+          
+          // Try to find video element
+          const videoSrc = await iframePage.evaluate(() => {
+            const video = document.querySelector('video');
+            return video ? video.src : null;
+          });
+          
+          if (videoSrc) {
+            videoUrl = videoSrc;
+            console.log(`✅ Found video src: ${videoUrl}`);
+          }
+          
+          await iframePage.close();
+          break;
+        }
+      }
+    }
+    
+    await page.close();
+    
+    if (videoUrl) {
+      // Return HTML that embeds the direct video URL
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Stream Player</title>
+          <style>
+            body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+            video { width: 100%; height: 100vh; object-fit: contain; }
+          </style>
+        </head>
+        <body>
+          <video controls autoplay>
+            <source src="${videoUrl}" type="application/x-mpegURL">
+            <source src="${videoUrl}" type="video/mp4">
+            Your browser doesn't support video playback.
+          </video>
+          <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+          <script>
+            const video = document.querySelector('video');
+            const videoSrc = '${videoUrl}';
+            
+            if (videoSrc.includes('.m3u8')) {
+              if (Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(videoSrc);
+                hls.attachMedia(video);
+              } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = videoSrc;
+              }
+            } else {
+              video.src = videoSrc;
+            }
+          </script>
+        </body>
+        </html>
+      `);
+    } else {
+      // Fallback: Return the full rendered HTML
+      const rewriteResult = rewriteContent(await page.content(), targetUrl);
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.send(rewriteResult.body);
+    }
+    
+  } catch (error) {
+    console.error(`❌ Browser proxy failed: ${error.message}`);
+    res.status(500).send(`
+      <html>
+        <body style="background: #1a1a2e; color: #fff; font-family: sans-serif; padding: 40px; text-align: center;">
+          <h1>🚫 Browser Proxy Error</h1>
+          <p>Error: ${error.message}</p>
+          <p>Make sure Puppeteer is installed: <code>npm install puppeteer</code></p>
+        </body>
+      </html>
+    `);
+  }
+});
 
 // Unified proxy endpoint: Handles ALL paths (HTML, JS, CSS, images, videos, etc.)
 app.get('/proxy/*', async (req, res) => {
@@ -71,42 +549,13 @@ app.get('/proxy/*', async (req, res) => {
           console.log(`🛡️ Neutralized bust pattern: ${pattern}`);
         }
       });
-      
-      // Remove meta redirects
-      content = content.replace(/<meta\s+http-equiv=["']?refresh["']?[^>]*>/gi, '');
-      
-      // Rewrite relative URLs to proxy (skip absolute URLs with protocols or //)
-      // Only rewrite paths that start with single / (not // or http(s)://)
-      
-      // HTML attributes (src, href, poster, data)
-      content = content.replace(
-        /((?:src|href|poster|data)\s*=\s*["'])\/(?!\/)([^"']+)(["'])/gi,
-        (match, prefix, path, suffix) => {
-          modified = true;
-          return `${prefix}/proxy/${path}${suffix}`;
-        }
-      );
-      
-      // CSS url()
-      content = content.replace(
-        /url\s*\(\s*['"]?\/(?!\/)([^'"\)]+)['"]?\s*\)/gi,
-        (match, path) => {
-          modified = true;
-          return `url('/proxy/${path}')`;
-        }
-      );
-      
-      // JS import/from (less common but covered)
-      content = content.replace(
-        /(import|from)\s+(['"])\/(?!\/)([^'"]+)\2/gi,
-        (match, keyword, quote, path) => {
-          modified = true;
-          return `${keyword} ${quote}/proxy/${path}${quote}`;
-        }
-      );
-      
+
+      const rewriteResult = rewriteContent(content, targetUrl);
+      content = rewriteResult.body;
+      modified = modified || rewriteResult.modified;
+
       console.log(modified ? `✏️ Rewrote content for ${targetPath}` : `ℹ️ No mods needed for ${targetPath}`);
-      
+
       res.set('Content-Type', contentType || 'text/plain');
       res.status(response.status).send(content);
     } else {
@@ -164,6 +613,16 @@ app.get('/proxy-video', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🎬 Bust-proof proxy on port ${PORT}`);
-  console.log(`🌐 Test: http://localhost:${PORT}/proxy/channels/hd/hd2.php`);
-  console.log(`🧪 Iframe embed: <iframe src="/proxy/channels/hd/hd2.php"></iframe>`);
+  console.log(`🌐 Basic proxy: http://localhost:${PORT}/proxy/channels/hd/hd2.php`);
+  console.log(`🎯 Stream proxy (domain spoof): http://localhost:${PORT}/stream-proxy/channels/hd/hd2.php`);
+  console.log(`🚀 Browser-based (needs Puppeteer): http://localhost:${PORT}/browser-proxy/channels/hd/hd2.php`);
+  console.log(`🧪 Iframe embed: <iframe src="/stream-proxy/channels/hd/hd2.php"></iframe>`);
+});
+
+// Cleanup on exit
+process.on('SIGINT', async () => {
+  if (browser) {
+    await browser.close();
+  }
+  process.exit();
 });
