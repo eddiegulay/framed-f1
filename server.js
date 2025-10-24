@@ -65,7 +65,15 @@ function rewriteContent(content, baseUrl, options = {}) {
     return { body: content, modified };
   }
 
-  const isLikelyHtml = /<html[\s>]/i.test(rewritten) || /<!DOCTYPE\s+html/i.test(rewritten);
+  const contentType = (options.contentType || '').toLowerCase();
+  const isHtmlByType = contentType.includes('text/html') || contentType.includes('application/xhtml');
+  const isCss = contentType.includes('text/css');
+  const isJs = contentType.includes('javascript') || contentType.includes('ecmascript');
+
+  const isLikelyHtml = isHtmlByType || /<html[\s>]/i.test(rewritten) || /<!DOCTYPE\s+html/i.test(rewritten);
+  const shouldRewriteAttributes = isLikelyHtml;
+  const shouldRewriteCssUrls = isLikelyHtml || isCss;
+  const shouldRewriteJsImports = isLikelyHtml || isJs;
 
   if (options.injectSpoof !== false && isLikelyHtml && !rewritten.includes('__proxySpoofGuard')) {
     const spoofScript = (() => {
@@ -76,7 +84,7 @@ function rewriteContent(content, baseUrl, options = {}) {
       const safeHostname = JSON.stringify(base.hostname);
       const safePathname = JSON.stringify(base.pathname);
       const safeReferer = JSON.stringify(options.referer || base.href);
-      return `<script>(function(){try{if(window.__proxySpoofGuard){return;}window.__proxySpoofGuard=true;var fakeLoc={href:${safeHref},origin:${safeOrigin},protocol:${safeProtocol},host:${safeHost},hostname:${safeHostname},pathname:${safePathname},search:"",hash:""};fakeLoc.toString=function(){return fakeLoc.href;};var fakeLocation=new Proxy(fakeLoc,{get:function(target,key){if(key==='assign'||key==='replace'||key==='reload'){return function(){return;};}var value=target[key];return typeof value==='function'?value.bind(target):value;},set:function(){return true;}});var overrideLocation=function(target){if(!target)return;try{Object.defineProperty(target,'location',{get:function(){return fakeLocation;},set:function(){},configurable:true});}catch(err){}};overrideLocation(window);try{overrideLocation(window.top);}catch(err){}try{overrideLocation(window.parent);}catch(err){}try{Object.defineProperty(document,'referrer',{get:function(){return ${safeReferer};},configurable:true});}catch(err){}try{Object.defineProperty(document,'domain',{get:function(){return ${safeHostname};},set:function(){return true;},configurable:true});}catch(err){}try{Object.defineProperty(document,'origin',{get:function(){return ${safeOrigin};},configurable:true});}catch(err){}var sanitizeDetector=function(detector){if(!detector)return;['addListener','removeListener','launch','stop','setDetectDelay'].forEach(function(fn){if(typeof detector[fn]==='function'){detector[fn]=function(){return false;};}});if(typeof detector.isLaunch==='function'){detector.isLaunch=function(){return false;};}};Object.defineProperty(window,'devtoolsDetector',{configurable:true,get:function(){return window.__proxyDevtoolsStub;},set:function(value){sanitizeDetector(value);window.__proxyDevtoolsStub=value;}});if(window.devtoolsDetector){sanitizeDetector(window.devtoolsDetector);}setInterval(function(){sanitizeDetector(window.devtoolsDetector);},2000);try{Object.defineProperty(window,'top',{get:function(){return window;},set:function(){},configurable:true});}catch(err){}try{Object.defineProperty(window,'parent',{get:function(){return window;},set:function(){},configurable:true});}catch(err){}var blockTerms=['debugger','lalavita','nunush','console.clear'];var shouldBlock=function(handler){if(!handler)return false;try{if(typeof handler==='string'){return blockTerms.some(function(term){return handler.indexOf(term)!==-1;});}if(typeof handler==='function'){var text=handler.toString();return blockTerms.some(function(term){return text.indexOf(term)!==-1;});}}catch(err){}return false;};var originalConsoleClear=window.console&&window.console.clear?window.console.clear.bind(window.console):function(){};if(window.console){window.console.clear=function(){try{window.console.log('ℹ️ Console clear blocked by proxy');}catch(err){}return;};}
+  return `<script>(function(){try{if(window.__proxySpoofGuard){return;}window.__proxySpoofGuard=true;var fakeLoc={href:${safeHref},origin:${safeOrigin},protocol:${safeProtocol},host:${safeHost},hostname:${safeHostname},pathname:${safePathname},search:"",hash:""};fakeLoc.toString=function(){return fakeLoc.href;};var fakeLocation=new Proxy(fakeLoc,{get:function(target,key){if(key==='assign'||key==='replace'||key==='reload'){return function(){return;};}var value=target[key];return typeof value==='function'?value.bind(target):value;},set:function(){return true;}});var overrideLocation=function(target){if(!target)return;try{Object.defineProperty(target,'location',{get:function(){return fakeLocation;},set:function(){},configurable:true});}catch(err){}};overrideLocation(window);try{overrideLocation(window.top);}catch(err){}try{overrideLocation(window.parent);}catch(err){}try{Object.defineProperty(document,'referrer',{get:function(){return ${safeReferer};},configurable:true});}catch(err){}try{Object.defineProperty(document,'domain',{get:function(){return ${safeHostname};},set:function(){return true;},configurable:true});}catch(err){}try{Object.defineProperty(document,'origin',{get:function(){return ${safeOrigin};},configurable:true});}catch(err){}var sanitizeDetector=function(detector){if(!detector)return;['addListener','removeListener','launch','stop','setDetectDelay'].forEach(function(fn){if(typeof detector[fn]==='function'){detector[fn]=function(){return false;};}});if(typeof detector.isLaunch==='function'){detector.isLaunch=function(){return false;};}};Object.defineProperty(window,'devtoolsDetector',{configurable:true,get:function(){return window.__proxyDevtoolsStub;},set:function(value){sanitizeDetector(value);window.__proxyDevtoolsStub=value;}});if(window.devtoolsDetector){sanitizeDetector(window.devtoolsDetector);}setInterval(function(){sanitizeDetector(window.devtoolsDetector);},2000);try{Object.defineProperty(window,'top',{get:function(){return window;},set:function(){},configurable:true});}catch(err){}try{Object.defineProperty(window,'parent',{get:function(){return window;},set:function(){},configurable:true});}catch(err){}var proxyRefererPart='';try{proxyRefererPart='&referer='+encodeURIComponent(${safeReferer});}catch(err){}var toProxyUrl=function(rawUrl){if(!rawUrl){return rawUrl;}try{var candidate=String(rawUrl);if(candidate.indexOf('/proxy-any?target=')!==-1)return candidate;if(/^(?:about:|data:|javascript:|mailto:|tel:|blob:|chrome-extension:)/i.test(candidate))return rawUrl;var absolute=new URL(candidate,fakeLocation.href);if(absolute.origin===window.location.origin&&absolute.pathname.indexOf('/proxy-any')===0)return rawUrl;return '/proxy-any?target='+encodeURIComponent(absolute.toString())+proxyRefererPart;}catch(err){return rawUrl;}};if(typeof window.fetch==='function'){var originalFetch=window.fetch.bind(window);window.fetch=function(input,init){try{if(typeof input==='string'){input=toProxyUrl(input);}else if(input&&typeof input==='object'){var proxied=toProxyUrl(input.url);if(proxied&&proxied!==input.url){input=typeof Request==='function'?new Request(proxied,input):proxied;}}}catch(err){}return originalFetch(input,init);};}if(typeof window.XMLHttpRequest==='function'){var originalOpen=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url,async,user,password){try{url=toProxyUrl(url);}catch(err){}return originalOpen.call(this,method,url,async,user,password);};}if(typeof window.aclib==='undefined'){window.aclib=[];}if(window.aclib&&typeof window.aclib.push!=='function'){try{window.aclib.push=function(callback){if(typeof callback==='function'){try{callback();}catch(err){}}return 0;};}catch(err){window.aclib=[];}}var blockTerms=['debugger','lalavita','nunush','console.clear'];var shouldBlock=function(handler){if(!handler)return false;try{if(typeof handler==='string'){return blockTerms.some(function(term){return handler.indexOf(term)!==-1;});}if(typeof handler==='function'){var text=handler.toString();return blockTerms.some(function(term){return text.indexOf(term)!==-1;});}}catch(err){}return false;};var originalConsoleClear=window.console&&window.console.clear?window.console.clear.bind(window.console):function(){};if(window.console){window.console.clear=function(){try{window.console.log('ℹ️ Console clear blocked by proxy');}catch(err){}return;};}
 var originalSetInterval=window.setInterval;window.setInterval=function(handler,delay){if(shouldBlock(handler)){return 0;}return originalSetInterval(handler,delay);};var originalSetTimeout=window.setTimeout;window.setTimeout=function(handler,delay){if(shouldBlock(handler)){return 0;}return originalSetTimeout(handler,delay);};}catch(err){if(window.console&&window.console.debug){window.console.debug('proxy spoof error',err);} }})();</script>`;
     })();
 
@@ -125,54 +133,63 @@ var originalSetInterval=window.setInterval;window.setInterval=function(handler,d
     return '';
   });
 
-  const attributePattern = /((?:src|href|poster|data)\s*=\s*)(["'])([^"']+)(["'])/gi;
-  rewritten = rewritten.replace(attributePattern, (match, prefix, quoteStart, urlValue, quoteEnd) => {
-    const resolved = safeResolve(urlValue);
-    if (!resolved) return match;
-    modified = true;
-    return `${prefix}${quoteStart}${wrapProxyUrl(resolved, baseUrl)}${quoteEnd}`;
-  });
+  if (shouldRewriteAttributes) {
+    const attributePattern = /((?:src|href|poster|data)\s*=\s*)(["'])([^"']+)(["'])/gi;
+    rewritten = rewritten.replace(attributePattern, (match, prefix, quoteStart, urlValue, quoteEnd) => {
+      const resolved = safeResolve(urlValue);
+      if (!resolved) return match;
+      modified = true;
+      return `${prefix}${quoteStart}${wrapProxyUrl(resolved, baseUrl)}${quoteEnd}`;
+    });
 
-  const srcsetPattern = /(srcset\s*=\s*["'])([^"']+)(["'])/gi;
-  rewritten = rewritten.replace(srcsetPattern, (match, prefix, list, suffix) => {
-    const rewrittenList = list
-      .split(',')
-      .map(entry => {
-        const parts = entry.trim().split(/\s+/);
-        const urlPart = parts.shift();
-        const resolved = safeResolve(urlPart);
-        if (!resolved) return entry;
-        const descriptor = parts.join(' ');
-        modified = true;
-        return `${wrapProxyUrl(resolved, baseUrl)}${descriptor ? ` ${descriptor}` : ''}`;
-      })
-      .join(', ');
-    return `${prefix}${rewrittenList}${suffix}`;
-  });
+    const srcsetPattern = /(srcset\s*=\s*["'])([^"']+)(["'])/gi;
+    rewritten = rewritten.replace(srcsetPattern, (match, prefix, list, suffix) => {
+      const rewrittenList = list
+        .split(',')
+        .map(entry => {
+          const parts = entry.trim().split(/\s+/);
+          const urlPart = parts.shift();
+          const resolved = safeResolve(urlPart);
+          if (!resolved) return entry;
+          const descriptor = parts.join(' ');
+          modified = true;
+          return `${wrapProxyUrl(resolved, baseUrl)}${descriptor ? ` ${descriptor}` : ''}`;
+        })
+        .join(', ');
+      return `${prefix}${rewrittenList}${suffix}`;
+    });
+  }
 
-  const cssUrlPattern = /url\(\s*['"]?([^'"\)]+)['"]?\s*\)/gi;
-  rewritten = rewritten.replace(cssUrlPattern, (match, urlValue) => {
-    const resolved = safeResolve(urlValue);
-    if (!resolved) return match;
-    modified = true;
-    return `url('${wrapProxyUrl(resolved, baseUrl)}')`;
-  });
+  if (shouldRewriteCssUrls) {
+    const cssUrlPattern = /url\(\s*['"]?([^'"\)]+)['"]?\s*\)/gi;
+    rewritten = rewritten.replace(cssUrlPattern, (match, urlValue) => {
+      if (/[+${}]/.test(urlValue)) {
+        return match;
+      }
+      const resolved = safeResolve(urlValue);
+      if (!resolved) return match;
+      modified = true;
+      return `url('${wrapProxyUrl(resolved, baseUrl)}')`;
+    });
+  }
 
-  const jsImportPattern = /(import\s+[^;]*from\s+['"])([^'"\s]+)(['"])/gi;
-  rewritten = rewritten.replace(jsImportPattern, (match, prefix, urlValue, suffix) => {
-    const resolved = safeResolve(urlValue);
-    if (!resolved) return match;
-    modified = true;
-    return `${prefix}${wrapProxyUrl(resolved, baseUrl)}${suffix}`;
-  });
+  if (shouldRewriteJsImports) {
+    const jsImportPattern = /(import\s+[^;]*from\s+['"])([^'"\s]+)(['"])/gi;
+    rewritten = rewritten.replace(jsImportPattern, (match, prefix, urlValue, suffix) => {
+      const resolved = safeResolve(urlValue);
+      if (!resolved) return match;
+      modified = true;
+      return `${prefix}${wrapProxyUrl(resolved, baseUrl)}${suffix}`;
+    });
 
-  const jsBareImportPattern = /(import\s*\(\s*['"])([^'"\s]+)(['"]\s*\))/gi;
-  rewritten = rewritten.replace(jsBareImportPattern, (match, prefix, urlValue, suffix) => {
-    const resolved = safeResolve(urlValue);
-    if (!resolved) return match;
-    modified = true;
-    return `${prefix}${wrapProxyUrl(resolved, baseUrl)}${suffix}`;
-  });
+    const jsBareImportPattern = /(import\s*\(\s*['"])([^'"\s]+)(['"]\s*\))/gi;
+    rewritten = rewritten.replace(jsBareImportPattern, (match, prefix, urlValue, suffix) => {
+      const resolved = safeResolve(urlValue);
+      if (!resolved) return match;
+      modified = true;
+      return `${prefix}${wrapProxyUrl(resolved, baseUrl)}${suffix}`;
+    });
+  }
 
   const simpleFrameBustPatterns = [
     /if\s*\(\s*(?:window|self)\s*==\s*(?:window\.)?top\s*\)/gi,
@@ -217,12 +234,13 @@ app.get('/stream-proxy/*', async (req, res) => {
       timeout: 30000
     });
     
+    const contentType = response.headers['content-type'] || 'text/html; charset=utf-8';
     let content = Buffer.from(response.data).toString('utf-8');
 
-    const rewriteResult = rewriteContent(content, targetUrl, { referer: targetUrl });
+    const rewriteResult = rewriteContent(content, targetUrl, { referer: targetUrl, contentType });
     content = rewriteResult.body;
 
-    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Content-Type', contentType || 'text/html; charset=utf-8');
     res.set('X-Frame-Options', 'ALLOWALL');
     res.set('Content-Security-Policy', "frame-ancestors 'self' *");
     res.set('Access-Control-Allow-Origin', '*');
@@ -270,9 +288,9 @@ app.get('/proxy-any', async (req, res) => {
       headers: {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         'Accept': '*/*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Referer': refererHeader,
-  'Origin': originHeader,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': refererHeader,
+        'Origin': originHeader,
         'Connection': 'keep-alive'
       },
       responseType: 'arraybuffer',
@@ -286,7 +304,7 @@ app.get('/proxy-any', async (req, res) => {
     let modified = false;
 
     if (isText) {
-  const rewriteResult = rewriteContent(content, targetUrl, { referer: refererHeader });
+      const rewriteResult = rewriteContent(content, targetUrl, { referer: refererHeader, contentType });
       content = rewriteResult.body;
       modified = rewriteResult.modified;
 
@@ -426,7 +444,10 @@ app.get('/browser-proxy/*', async (req, res) => {
       `);
     } else {
       // Fallback: Return the full rendered HTML
-  const rewriteResult = rewriteContent(await page.content(), targetUrl, { referer: targetUrl });
+      const rewriteResult = rewriteContent(await page.content(), targetUrl, {
+        referer: targetUrl,
+        contentType: 'text/html; charset=utf-8'
+      });
       res.set('Content-Type', 'text/html; charset=utf-8');
       res.send(rewriteResult.body);
     }
@@ -496,22 +517,7 @@ app.get('/proxy/*', async (req, res) => {
     let modified = false;
     
     if (isText) {
-      // De-bust: Expanded regex for inline/external JS/HTML (catches minified/obfuscated)
-      const bustPatterns = [
-        /if\s*\(\s*(top|parent|window(?:\.top)?|window\.self)\s*!==?\s*(self|window(?:\.top)?)\s*\)\s*(top|parent|window\.top)\.location\s*[=:]?\s*(self|window)\.location/gi,
-        /if\s*\(\s*window\.frameElement\s*\)\s*(top|parent)\.location\s*[=:]?\s*window\.location/gi,
-        /if\s*\(\s*window\s*==\s*window\.top\s*\)\s*\{?\s*(?!if\s*\(false\))|else\s*\{?\s*(top|parent)\.location/gi, // Reverse logic
-        /<script[^>]*>\s*if\s*\([^}]+\)\s*(?:top|parent)\.location/gi // Inline script starts
-      ];
-      bustPatterns.forEach(pattern => {
-        if (pattern.test(content)) {
-          content = content.replace(pattern, 'if(false) // De-busted: $&');
-          modified = true;
-          console.log(`🛡️ Neutralized bust pattern: ${pattern}`);
-        }
-      });
-
-  const rewriteResult = rewriteContent(content, targetUrl, { referer: targetUrl });
+      const rewriteResult = rewriteContent(content, targetUrl, { referer: targetUrl, contentType });
       content = rewriteResult.body;
       modified = modified || rewriteResult.modified;
 
