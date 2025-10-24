@@ -75,18 +75,35 @@ app.get('/proxy/*', async (req, res) => {
       // Remove meta redirects
       content = content.replace(/<meta\s+http-equiv=["']?refresh["']?[^>]*>/gi, '');
       
-      // Rewrite ALL relative URLs to proxy (no absolutes! Fixes CORS/redirects)
-      // Handles src/href in HTML, import/export in JS, @import in CSS
-      const urlPatterns = [
-        /(src|href|poster|data)["']?=[\"']?\/([^\"'\s>]+)[\"']?/gi,
-        /url\s*\(\s*['"]?\/([^'"\)]+)['"]?\s*\)/gi, // CSS url()
-        /import\s+['"]?\/([^'"\s;]+)['"]?/gi, // JS import
-        /from\s+['"]?\/([^'"\s;]+)['"]?/gi // JS from
-      ];
-      urlPatterns.forEach(pattern => {
-        content = content.replace(pattern, `$1="/proxy/$2"$3`);
-        modified = true;
-      });
+      // Rewrite relative URLs to proxy (skip absolute URLs with protocols or //)
+      // Only rewrite paths that start with single / (not // or http(s)://)
+      
+      // HTML attributes (src, href, poster, data)
+      content = content.replace(
+        /((?:src|href|poster|data)\s*=\s*["'])\/(?!\/)([^"']+)(["'])/gi,
+        (match, prefix, path, suffix) => {
+          modified = true;
+          return `${prefix}/proxy/${path}${suffix}`;
+        }
+      );
+      
+      // CSS url()
+      content = content.replace(
+        /url\s*\(\s*['"]?\/(?!\/)([^'"\)]+)['"]?\s*\)/gi,
+        (match, path) => {
+          modified = true;
+          return `url('/proxy/${path}')`;
+        }
+      );
+      
+      // JS import/from (less common but covered)
+      content = content.replace(
+        /(import|from)\s+(['"])\/(?!\/)([^'"]+)\2/gi,
+        (match, keyword, quote, path) => {
+          modified = true;
+          return `${keyword} ${quote}/proxy/${path}${quote}`;
+        }
+      );
       
       console.log(modified ? `✏️ Rewrote content for ${targetPath}` : `ℹ️ No mods needed for ${targetPath}`);
       
