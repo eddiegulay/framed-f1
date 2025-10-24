@@ -71,9 +71,10 @@ function rewriteContent(content, baseUrl, options = {}) {
   const isJs = contentType.includes('javascript') || contentType.includes('ecmascript');
 
   const isLikelyHtml = isHtmlByType || /<html[\s>]/i.test(rewritten) || /<!DOCTYPE\s+html/i.test(rewritten);
+  const isM3u8 = contentType.includes('mpegurl') || /\.m3u8(\?|$)/i.test(base.pathname || '');
   const shouldRewriteAttributes = isLikelyHtml;
   const shouldRewriteCssUrls = isLikelyHtml || isCss;
-  const shouldRewriteJsImports = isLikelyHtml || isJs;
+  const shouldRewriteJsImports = isLikelyHtml;
 
   if (options.injectSpoof !== false && isLikelyHtml && !rewritten.includes('__proxySpoofGuard')) {
     const spoofScript = (() => {
@@ -88,12 +89,15 @@ function rewriteContent(content, baseUrl, options = {}) {
 var originalSetInterval=window.setInterval;window.setInterval=function(handler,delay){if(shouldBlock(handler)){return 0;}return originalSetInterval(handler,delay);};var originalSetTimeout=window.setTimeout;window.setTimeout=function(handler,delay){if(shouldBlock(handler)){return 0;}return originalSetTimeout(handler,delay);};}catch(err){if(window.console&&window.console.debug){window.console.debug('proxy spoof error',err);} }})();</script>`;
     })();
 
+    const aclibStubScript = `<script>(function(){try{if(typeof window.aclib==='undefined'||window.aclib===null){window.aclib={queue:[],push:function(callback){if(typeof callback==='function'){try{callback();}catch(err){}}return 0;},runPop:function(){return false;},addEventListener:function(){return false;},init:function(){return false;}};}else{if(typeof window.aclib.push!=='function'){window.aclib.push=function(callback){if(typeof callback==='function'){try{callback();}catch(err){}}return 0;};}if(typeof window.aclib.runPop!=='function'){window.aclib.runPop=function(){return false;};}}}catch(err){}})();</script>`;
+    const injectionBlock = spoofScript + aclibStubScript;
+
     if (/<head[^>]*>/i.test(rewritten)) {
-      rewritten = rewritten.replace(/<head[^>]*>/i, match => `${match}${spoofScript}`);
+      rewritten = rewritten.replace(/<head[^>]*>/i, match => `${match}${injectionBlock}`);
     } else if (/<html[^>]*>/i.test(rewritten)) {
-      rewritten = rewritten.replace(/<html[^>]*>/i, match => `${match}${spoofScript}`);
+      rewritten = rewritten.replace(/<html[^>]*>/i, match => `${match}${injectionBlock}`);
     } else {
-      rewritten = spoofScript + rewritten;
+      rewritten = injectionBlock + rewritten;
     }
     modified = true;
   }
@@ -121,6 +125,34 @@ var originalSetInterval=window.setInterval;window.setInterval=function(handler,d
       return null;
     }
   };
+
+  if (isM3u8) {
+    const proxyReferer = options.referer || baseUrl;
+    const processed = rewritten.split(/\r?\n/).map(line => {
+      if (!line) return line;
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.startsWith('#')) {
+        return line.replace(/URI="([^"]+)"/gi, (match, uri) => {
+          const resolved = safeResolve(uri);
+          if (!resolved) return match;
+          modified = true;
+          return `URI="${wrapProxyUrl(resolved, proxyReferer)}"`;
+        }).replace(/URI='([^']+)'/gi, (match, uri) => {
+          const resolved = safeResolve(uri);
+          if (!resolved) return match;
+          modified = true;
+          return `URI='${wrapProxyUrl(resolved, proxyReferer)}'`;
+        });
+      }
+      const resolved = safeResolve(trimmed);
+      if (!resolved) return line;
+      modified = true;
+      const proxied = wrapProxyUrl(resolved, proxyReferer);
+      return line.replace(trimmed, proxied);
+    }).join('\n');
+    return { body: processed, modified };
+  }
 
   // Remove meta redirects and CSP early
   rewritten = rewritten.replace(/<meta\s+http-equiv=["']?refresh["']?[^>]*>/gi, () => {
@@ -191,21 +223,23 @@ var originalSetInterval=window.setInterval;window.setInterval=function(handler,d
     });
   }
 
-  const simpleFrameBustPatterns = [
-    /if\s*\(\s*(?:window|self)\s*==\s*(?:window\.)?top\s*\)/gi,
-    /if\s*\(\s*(?:top|parent)\s*==\s*(?:window|self)\s*\)/gi,
-    /if\s*\(\s*(?:window|self)\s*!==\s*(?:window\.)?top\s*\)/gi,
-    /if\s*\(\s*(?:window|self)\s*!=\s*(?:window\.)?top\s*\)/gi
-  ];
-  simpleFrameBustPatterns.forEach(pattern => {
-    rewritten = rewritten.replace(pattern, match => {
-      if (/&&\s*false/.test(match)) {
-        return match;
-      }
-      modified = true;
-      return match.replace(/\)\s*$/, ' && false)');
+  if (isLikelyHtml) {
+    const simpleFrameBustPatterns = [
+      /if\s*\(\s*(?:window|self)\s*==\s*(?:window\.)?top\s*\)/gi,
+      /if\s*\(\s*(?:top|parent)\s*==\s*(?:window|self)\s*\)/gi,
+      /if\s*\(\s*(?:window|self)\s*!==\s*(?:window\.)?top\s*\)/gi,
+      /if\s*\(\s*(?:window|self)\s*!=\s*(?:window\.)?top\s*\)/gi
+    ];
+    simpleFrameBustPatterns.forEach(pattern => {
+      rewritten = rewritten.replace(pattern, match => {
+        if (/&&\s*false/.test(match)) {
+          return match;
+        }
+        modified = true;
+        return match.replace(/\)\s*$/, ' && false)');
+      });
     });
-  });
+  }
 
   return { body: rewritten, modified };
 }
@@ -244,6 +278,8 @@ app.get('/stream-proxy/*', async (req, res) => {
     res.set('X-Frame-Options', 'ALLOWALL');
     res.set('Content-Security-Policy', "frame-ancestors 'self' *");
     res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
+  res.set('Access-Control-Allow-Headers', '*');
     res.removeHeader('X-Content-Type-Options');
     
     res.send(content);
@@ -299,9 +335,14 @@ app.get('/proxy-any', async (req, res) => {
     });
 
     const contentType = response.headers['content-type'] || '';
-    const isText = contentType.includes('text/') || contentType.includes('javascript') || contentType.includes('json');
+    const lowerContentType = contentType.toLowerCase();
+    const isText = lowerContentType.includes('text') || lowerContentType.includes('javascript') || lowerContentType.includes('json') || lowerContentType.includes('xml') || lowerContentType.includes('mpegurl');
     let content = isText ? Buffer.from(response.data).toString('utf-8') : response.data;
     let modified = false;
+
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
+    res.set('Access-Control-Allow-Headers', '*');
 
     if (isText) {
       const rewriteResult = rewriteContent(content, targetUrl, { referer: refererHeader, contentType });
@@ -508,10 +549,13 @@ app.get('/proxy/*', async (req, res) => {
     res.set('X-Frame-Options', 'ALLOWALL');
     res.set('Content-Security-Policy', "frame-ancestors 'self' *");
     res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
+  res.set('Access-Control-Allow-Headers', '*');
     res.set('Cache-Control', 'public, max-age=3600'); // Cache assets
     
-    const contentType = response.headers['content-type'] || '';
-    const isText = contentType.includes('text/') || contentType.includes('javascript') || contentType.includes('json');
+  const contentType = response.headers['content-type'] || '';
+  const lowerContentType = contentType.toLowerCase();
+  const isText = lowerContentType.includes('text') || lowerContentType.includes('javascript') || lowerContentType.includes('json') || lowerContentType.includes('xml') || lowerContentType.includes('mpegurl');
     let content = isText ? Buffer.from(response.data).toString('utf-8') : response.data;
     
     let modified = false;
