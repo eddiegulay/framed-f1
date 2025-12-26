@@ -6,19 +6,42 @@ import './index.css';
 
 function App() {
   const [channels, setChannels] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedChannel, setSelectedChannel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
-    fetchPlaylist();
+    fetchCategories();
   }, []);
 
-  const fetchPlaylist = async () => {
+  useEffect(() => {
+    if (selectedCategory) {
+      fetchPlaylist(selectedCategory.url);
+    }
+  }, [selectedCategory]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/categories');
+      if (!res.ok) throw new Error('Failed to fetch categories');
+      const data = await res.json();
+      setCategories(data);
+      if (data.length > 0) {
+        setSelectedCategory(data[0]);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    }
+  };
+
+  const fetchPlaylist = async (url) => {
     try {
       setLoading(true);
-      const res = await fetch('http://localhost:3000/api/playlist');
+      const res = await fetch(`http://localhost:3000/api/playlist?url=${encodeURIComponent(url)}`);
       if (!res.ok) throw new Error('Failed to fetch playlist');
       const data = await res.json();
       setChannels(data.channels);
@@ -36,6 +59,9 @@ function App() {
       <div className={`sidebar-wrapper ${!isSidebarOpen ? 'closed' : ''}`}>
         <ChannelList
           channels={channels}
+          categories={categories}
+          selectedCategory={selectedCategory}
+          onSelectCategory={setSelectedCategory}
           activeChannel={selectedChannel}
           onSelectChannel={(ch) => {
             setSelectedChannel(ch);

@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { X, Search } from 'lucide-react';
 
-const ChannelList = ({ channels, onSelectChannel, activeChannel, onClose }) => {
+const ChannelList = ({
+    channels,
+    onSelectChannel,
+    activeChannel,
+    onClose,
+    categories,
+    selectedCategory,
+    onSelectCategory
+}) => {
     const [filter, setFilter] = useState('');
 
     const filteredChannels = channels.filter(ch =>
@@ -16,6 +24,19 @@ const ChannelList = ({ channels, onSelectChannel, activeChannel, onClose }) => {
                     <X size={20} />
                 </button>
             </div>
+
+            <div className="categories-wrapper">
+                {categories.map((cat, idx) => (
+                    <button
+                        key={idx}
+                        className={`category-chip ${selectedCategory?.name === cat.name ? 'active' : ''}`}
+                        onClick={() => onSelectCategory(cat)}
+                    >
+                        {cat.name}
+                    </button>
+                ))}
+            </div>
+
             <div style={{ padding: '0 0.5rem 0.5rem' }}>
                 <div className="search-bar">
                     <Search size={16} className="search-icon" />
