@@ -1,134 +1,109 @@
 # The Framed Stream 🎬
 
-A cinematic live sports streaming platform that transforms raw feeds into immersive, atmospheric viewing experiences. Features elegant glassmorphic UI, ambient lighting effects, and seamless proxy integration for services like Sportzonline.
+A cinematic live sports streaming platform that transforms raw IPTV feeds into immersive, atmospheric viewing experiences. This application uses a split-architecture design with a **React** frontend for the UI and an **Express** backend to handle proxying and header manipulation, allowing for seamless playback of streams that usually enforce strict CORS or Referer policies.
 
-## Features
+## ✨ Features
 
-- **Cinematic Interface**: Stadium-inspired gradients with midnight blues and subtle golds
-- **Ambient Glow Effects**: Breathing animations that pulse with the stream's rhythm
-- **Smart Overlays**: Translucent metadata that fades on hover—never intrusive
-- **Proxy Integration**: Bypasses X-Frame-Options restrictions for seamless embedding
-- **Fullscreen Support**: Immersive viewing with keyboard shortcuts (press 'F')
-- **Live Timestamps**: Real-time clock overlay for match tracking
-
-## Architecture
-
-### Frontend (`public/index.html`)
-- Glassmorphic player frame with backdrop blur
-- Dual radial gradients simulating arena floodlights
-- Hover-triggered controls and metadata overlays
-- Cinematic fade-in on load
-
-### Backend (`server.js`)
-- Express proxy server with header manipulation
-- Routes:
-  - `/proxy-stream/*` - Main stream proxy (removes X-Frame-Options)
-  - `/proxy-video?url=` - Direct HLS/M3U8 fallback
-  - `/` - Serves static frontend
-
-## Setup
-
-### Install Dependencies
-```bash
-npm install
-```
-
-### Run Development Server
-```bash
-npm start
-```
-
-The server will start on `http://localhost:3000`
-
-### For Development with Auto-Reload
-```bash
-npm run dev
-```
-
-## Configuration
-
-### Change Target Stream
-Edit `server.js` to modify the proxy target:
-```javascript
-target: 'https://sportzonline.live',  // Change to your stream source
-```
-
-### Adjust Stream URL
-Edit `public/index.html` iframe source:
-```html
-<iframe src="/proxy-stream/channels/hd/hd2.php" ...>
-```
-
-### Customize Theme
-Colors and effects in `public/index.html`:
-- **Background**: `linear-gradient(135deg, #0a0a0f 0%, #1e1e2f 50%, #2a0a0f 100%)`
-- **Accent**: `rgba(255, 165, 0, ...)` (golden orange)
-- **Secondary**: `rgba(100, 200, 255, ...)` (cool blue)
-
-## Production Deployment
-
-### Environment Variables
-```bash
-PORT=3000  # Server port (default: 3000)
-```
-
-### Recommended Platforms
-- **Vercel/Cloudflare**: Edge caching reduces latency to <100ms
-- **Railway/Render**: Simple deployment with persistent endpoints
-- **VPS**: Full control with optional VPN proxy layer for geo-restrictions
-
-### Security Hardening
-1. Tighten CSP in production:
-   ```javascript
-   res.set('Content-Security-Policy', "frame-ancestors 'self' yourdomain.com");
-   ```
-
-2. Whitelist stream origins:
-   ```javascript
-   const allowedOrigins = ['sportzonline.live', 'trusted-stream.com'];
-   if (!allowedOrigins.includes(targetHost)) return res.status(403).send('Forbidden');
-   ```
-
-3. Add rate limiting:
-   ```bash
-   npm install express-rate-limit
-   ```
-
-## Usage
-
-### Keyboard Shortcuts
-- `F` - Toggle fullscreen
-- `Space` - Play/pause (if stream supports postMessage)
-
-### Direct HLS Streaming
-If you extract the M3U8 URL from network inspection:
-```javascript
-// Use the direct video proxy
-<iframe src="/proxy-video?url=https://stream.example.com/playlist.m3u8">
-```
-
-## Troubleshooting
-
-### Stream Not Loading
-1. Check browser console for CORS errors
-2. Verify proxy target URL is correct
-3. Test direct stream URL in browser first
-
-### Geo-Restrictions
-Add a VPN/proxy layer before the Express server or use a service like:
-- Cloudflare Workers (with residential IPs)
-- Bright Data proxies
-- Custom VPN endpoints
-
-### High Latency
-- Deploy to edge locations closer to stream source
-- Enable Cloudflare CDN caching
-- Use direct M3U8 URLs when possible
-
-## License
-
-MIT - See LICENSE file for details
+- **Cinematic Interface**: Stadium-inspired gradients and glassmorphic UI elements.
+- **IPTV Category Browsing**: Integrated browsing of categorized IPTV channels (Animation, Sports, Movies, etc.).
+- **Smart Proxy**: Bypasses `X-Frame-Options` and manages `Referer`/`Origin` headers to play restricted streams.
+- **HLS Support**: Native playback of `.m3u8` streams with a custom video player.
+- **Responsive Design**: Collapsible sidebar and mobile-friendly layout.
 
 ---
 
-**Pro Tip**: For night games, adjust the gradient to cooler tones (`#0a0a0f → #0a0a1f`) for that late-match atmosphere.
+## 🏗 Architecture
+
+The project consists of two main parts that must run simultaneously:
+
+1.  **Backend (Root)**: Node.js + Express
+    - Runs on port `3000` (default).
+    - Fetches playlists.
+    - Proxies video streams to bypass browser security restrictions (CORS/Frame ancestors).
+2.  **Frontend (`/client`)**: React + Vite
+    - Runs on port `5173` (default).
+    - Provides the user interface (Channel list, Video Player).
+    - Proxies API requests to the Backend via Vite configuration (or direct fetch).
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js (v16 or higher recommended)
+- npm
+
+### 1. Installation
+
+You need to install dependencies for **both** the backend and the frontend.
+
+**Backend Dependencies:**
+```bash
+# In the root directory
+npm install
+```
+
+**Frontend Dependencies:**
+```bash
+# In the client directory
+cd client
+npm install
+cd .. # Go back to root
+```
+
+### 2. Running the App
+
+You need two terminal windows to run the application (or a tool like `concurrently`, though separate terminals are recommended for debugging).
+
+**Terminal 1: Start Backend**
+```bash
+# From the root directory
+npm run dev
+# Server will start at http://localhost:3000
+```
+
+**Terminal 2: Start Frontend**
+```bash
+# From the root directory
+npm run client:dev
+# Client will start at http://localhost:5173
+```
+
+Once both are running, open your browser to **[http://localhost:5173](http://localhost:5173)** to use the app.
+
+---
+
+## ⚙️ Configuration
+
+### Backend Options
+- **Port**: Set the `PORT` environment variable to change the backend port (default: 3000).
+- **Default Playlist**: Modify `DEFAULT_PLAYLIST_URL` in `server.js` to change the initial playlist loaded by the app.
+
+### Adding Custom Channels
+The application is designed to parse M3U playlists. You can modify the `CATEGORIES` array in `server.js` to add your own playlist sources.
+
+```javascript
+// server.js
+const CATEGORIES = [
+  { name: 'My Custom List', url: 'https://example.com/playlist.m3u' },
+  // ...
+];
+```
+
+## 🛠 Troubleshooting
+
+**Stream not loading?**
+- Check the console in the browser developer tools.
+- Ensure the backend is running on port 3000.
+- Some streams may be geo-locked or require specific headers that the generic proxy doesn't handle.
+
+**CORS Errors?**
+- Ensure you possess the rights to view the content.
+- The proxy attempts to handle CORS, but extremely strict servers might still reject the request.
+
+---
+
+## License
+
+MIT
