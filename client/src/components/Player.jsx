@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RotateCcw } from 'lucide-react';
 
 const Player = ({ streamUrl, channelName }) => {
     const videoRef = useRef(null);
     const containerRef = useRef(null);
     const hlsRef = useRef(null);
     const [error, setError] = useState(null);
+    const [retryCount, setRetryCount] = useState(0);
 
     // Player State
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [volume, setVolume] = useState(1);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -25,8 +27,15 @@ const Player = ({ streamUrl, channelName }) => {
 
         const proxyUrl = `http://localhost:3000/proxy?url=${encodeURIComponent(streamUrl)}`;
 
-        const onPlay = () => setIsPlaying(true);
+        setIsLoading(true);
+
+        const onPlay = () => {
+            setIsPlaying(true);
+            setIsLoading(false);
+        };
         const onPause = () => setIsPlaying(false);
+        const onWaiting = () => setIsLoading(true);
+        const onPlaying = () => setIsLoading(false);
         const onVolumeChange = () => {
             setVolume(video.volume);
             setIsMuted(video.muted);
@@ -34,6 +43,8 @@ const Player = ({ streamUrl, channelName }) => {
 
         video.addEventListener('play', onPlay);
         video.addEventListener('pause', onPause);
+        video.addEventListener('waiting', onWaiting);
+        video.addEventListener('playing', onPlaying);
         video.addEventListener('volumechange', onVolumeChange);
 
         if (Hls.isSupported()) {
@@ -67,13 +78,25 @@ const Player = ({ streamUrl, channelName }) => {
             setError('HLS not supported');
         }
 
+        // Safety timeout
+        const timeoutId = setTimeout(() => {
+            if (isLoading) {
+                setError('Connection timeout');
+                setIsLoading(false);
+                if (hlsRef.current) hlsRef.current.stopLoad();
+            }
+        }, 20000);
+
         return () => {
+            clearTimeout(timeoutId);
             video.removeEventListener('play', onPlay);
             video.removeEventListener('pause', onPause);
+            video.removeEventListener('waiting', onWaiting);
+            video.removeEventListener('playing', onPlaying);
             video.removeEventListener('volumechange', onVolumeChange);
             if (hlsRef.current) hlsRef.current.destroy();
         };
-    }, [streamUrl]);
+    }, [streamUrl, retryCount]);
 
     // Controls Logic
     const togglePlay = () => {
@@ -126,8 +149,23 @@ const Player = ({ streamUrl, channelName }) => {
             onDoubleClick={toggleFullscreen}
         >
             {error && (
-                <div className="error-message" style={{ position: 'absolute', zIndex: 20 }}>
-                    {error}
+                <div className="error-message" style={{ position: 'absolute', zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                    <span>{error}</span>
+                    <button
+                        onClick={() => {
+                            setError(null);
+                            setRetryCount(c => c + 1);
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 16px', borderRadius: '4px', border: 'none', background: '#e50914', color: 'white', cursor: 'pointer' }}
+                    >
+                        <RotateCcw size={16} /> Retry
+                    </button>
+                </div>
+            )}
+
+            {isLoading && !error && (
+                <div className="loading-overlay">
+                    <div className="spinner"></div>
                 </div>
             )}
 

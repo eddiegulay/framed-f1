@@ -37,6 +37,7 @@ const CATEGORIES = [
   { name: 'Relax', url: 'https://iptv-org.github.io/iptv/categories/relax.m3u' },
   { name: 'Religious', url: 'https://iptv-org.github.io/iptv/categories/religious.m3u' },
   { name: 'Science', url: 'https://iptv-org.github.io/iptv/categories/science.m3u' },
+  { name: 'Swahili', url: 'https://iptv-org.github.io/iptv/languages/swa.m3u' },
   { name: 'Series', url: 'https://iptv-org.github.io/iptv/categories/series.m3u' },
   { name: 'Shop', url: 'https://iptv-org.github.io/iptv/categories/shop.m3u' },
   { name: 'Sports', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u' },
@@ -105,6 +106,7 @@ app.get('/proxy', async (req, res) => {
       url: targetUrl,
       headers: headers,
       responseType: 'stream',
+      timeout: 15000, // 15 seconds timeout
       validateStatus: () => true, // Don't throw on 4xx/5xx
     });
 
@@ -137,6 +139,9 @@ app.get('/proxy', async (req, res) => {
 
   } catch (error) {
     console.error(`❌ Proxy error for ${targetUrl}:`, error.message);
+    if (error.code === 'ECONNABORTED') {
+      return res.status(504).send('Gateway Timeout');
+    }
     res.status(500).send('Proxy error');
   }
 });
