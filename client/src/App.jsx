@@ -25,7 +25,7 @@ function App() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/categories');
+      const res = await fetch('/api/categories');
       if (!res.ok) throw new Error('Failed to fetch categories');
       const data = await res.json();
       setCategories(data);
@@ -41,7 +41,7 @@ function App() {
   const fetchPlaylist = async (url) => {
     try {
       setLoading(true);
-      const res = await fetch(`http://localhost:3000/api/playlist?url=${encodeURIComponent(url)}`);
+      const res = await fetch(`/api/playlist?url=${encodeURIComponent(url)}`);
       if (!res.ok) throw new Error('Failed to fetch playlist');
       const data = await res.json();
       setChannels(data.channels);

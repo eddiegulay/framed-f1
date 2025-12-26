@@ -3,11 +3,15 @@ const axios = require('axios');
 const cors = require('cors');
 const parser = require('iptv-playlist-parser');
 const { URL } = require('url');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 1507;
 
 app.use(cors());
+
+// Serve static files from the React client build directory
+app.use(express.static(path.join(__dirname, 'client/dist')));
 
 // Default playlist URL (Animation category as requested)
 const DEFAULT_PLAYLIST_URL = 'https://iptv-org.github.io/iptv/categories/animation.m3u';
@@ -175,6 +179,11 @@ function rewriteM3u8(content, originalUrl) {
 
   return rewrittenLines.join('\n');
 }
+
+// All other GET requests not handled before will return our React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client/dist', 'index.html'));
+});
 
 app.listen(PORT, () => {
   console.log(`📺 IPTV Mediator running on http://localhost:${PORT}`);

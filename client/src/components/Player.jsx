@@ -25,7 +25,7 @@ const Player = ({ streamUrl, channelName }) => {
         setError(null);
         if (!streamUrl) return;
 
-        const proxyUrl = `http://localhost:3000/proxy?url=${encodeURIComponent(streamUrl)}`;
+        const proxyUrl = `/proxy?url=${encodeURIComponent(streamUrl)}`;
 
         setIsLoading(true);
 
