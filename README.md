@@ -29,48 +29,70 @@ The project consists of two main parts that must run simultaneously:
 
 ## Getting Started
 
-### Prerequisites
+Choose one of the following methods to run the application.
 
-- Node.js (v16 or higher recommended)
-- npm
+### Option 1: Docker Compose (Recommended)
 
-### 1. Installation
+The easiest way to get up and running.
 
-You need to install dependencies for **both** the backend and the frontend.
-
-**Backend Dependencies:**
 ```bash
-# In the root directory
-npm install
+# Start the application
+docker-compose up -d
+
+# The app will be available at http://localhost:1507
 ```
 
-**Frontend Dependencies:**
+### Option 2: Docker CLI
+
+Run the pre-built image directly from DockerHub.
+
 ```bash
-# In the client directory
+# Pull and run the container
+docker run -p 1507:1507 eddiegulled/framed-tv:latest
+
+# The app will be available at http://localhost:1507
+```
+
+**Build it yourself:**
+
+```bash
+# Build the image
+docker build -t framed-tv .
+
+# Run locally
+docker run -p 1507:1507 framed-tv
+```
+
+### Option 3: Manual Installation (Development)
+
+Requires [Node.js](https://nodejs.org/) (v18+).
+
+**1. Install Dependencies**
+
+```bash
+# Install backend dependencies
+npm install
+
+# Install frontend dependencies
 cd client
 npm install
-cd .. # Go back to root
+cd ..
 ```
 
-### 2. Running the App
+**2. Start Development Servers**
 
-You need two terminal windows to run the application (or a tool like `concurrently`, though separate terminals are recommended for debugging).
+You need to run both the backend and frontend.
 
-**Terminal 1: Start Backend**
 ```bash
-# From the root directory
+# Terminal 1: Backend
 npm run dev
-# Server will start at http://localhost:3000
-```
 
-**Terminal 2: Start Frontend**
-```bash
-# From the root directory
+# Terminal 2: Frontend
 npm run client:dev
-# Client will start at http://localhost:5173
 ```
 
-Once both are running, open your browser to **[http://localhost:5173](http://localhost:5173)** to use the app.
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3000`
 
 ---
 
