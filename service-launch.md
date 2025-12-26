@@ -1,109 +1,108 @@
-## 1. Create a systemd **user** service
+# Running Framed TV as a Systemd Service (Docker)
 
-User services are correct here (no sudo, runs under your account).
+This guide links the `framed-tv` Docker container to a systemd user service. This ensures the application starts on boot, restarts on failure, and manages logs cleanly.
 
-### Create service file
+## 1. Key design decisions
+
+*   **Systemd manages Docker**: We use systemd to start/stop the *container*, not the Node process directly.
+*   **No local dependencies**: We don't need `npm` or `node` installed on the host for this to run.
+*   **Robustness**: Systemd handles restart policies (e.g., if the daemon crashes).
+
+## 2. Create the systemd service file
+
+Create the service file in your user configuration directory:
 
 ```bash
 mkdir -p ~/.config/systemd/user
 nano ~/.config/systemd/user/framed-tv.service
 ```
 
-Paste:
+Paste the following configuration:
 
 ```ini
 [Unit]
-Description=Framed TV Service
-After=network.target
+Description=Framed TV (Docker)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Documents/Misc/framed-f1
-ExecStart=%h/Documents/Misc/framed-f1/framed-tv.sh
+
+# Clean up any previous container with the same name to avoid conflicts
+ExecStartPre=/usr/bin/docker rm -f framed-tv || true
+
+# Run container
+# -p 1507:1507 maps the port
+# --name framed-tv gives it a predictable name for commands
+ExecStart=/usr/bin/docker run \
+  --name framed-tv \
+  -p 1507:1507 \
+  eddiegulled/framed-tv:latest
+
+# Stop container cleanly when service stops
+ExecStop=/usr/bin/docker stop framed-tv
+
+# Restart if it crashes
 Restart=on-failure
-RestartSec=3
-KillSignal=SIGTERM
+RestartSec=5
+
+# Prevent systemd from interfering with Docker's process management
+KillMode=none
 
 [Install]
 WantedBy=default.target
 ```
 
-### Make script executable
+## 3. Enable and Start the Service
 
-```bash
-chmod +x ~/Documents/Misc/framed-f1/framed-tv.sh
-```
-
-### Reload systemd
+Reload the systemd manager configuration to recognize the new service:
 
 ```bash
 systemctl --user daemon-reload
 ```
 
----
-
-## 2. Service lifecycle commands (core)
-
-These are the **real** commands systemd uses:
+Start the service immediately:
 
 ```bash
 systemctl --user start framed-tv
-systemctl --user stop framed-tv
-systemctl --user restart framed-tv
-systemctl --user status framed-tv
 ```
 
----
-
-## 3. Create aliases (developer ergonomics)
-
-Add these to `~/.bashrc` or `~/.zshrc`:
-
-```bash
-alias framed-tv="systemctl --user start framed-tv"
-alias framed-tv-stop="systemctl --user stop framed-tv"
-alias framed-tv-restart="systemctl --user restart framed-tv"
-alias framed-tv-status="systemctl --user status framed-tv"
-```
-
-Reload shell:
-
-```bash
-source ~/.bashrc
-```
-
-Now you can do:
-
-```bash
-framed-tv
-framed-tv-stop
-framed-tv-restart
-```
-
----
-
-## 4. Optional but recommended improvements
-
-### Auto-start on login
+Enable it to start automatically on login/boot:
 
 ```bash
 systemctl --user enable framed-tv
 ```
 
-### View logs (very useful)
+## 4. Manage the Service
 
+Check the status:
+
+```bash
+systemctl --user status framed-tv
+```
+
+Restart (pulls new image only if you changed the ExecStart to use `--pull=always`, otherwise just restarts container):
+
+```bash
+systemctl --user restart framed-tv
+```
+
+Stop the service:
+
+```bash
+systemctl --user stop framed-tv
+```
+
+## 5. View Logs
+
+You can view logs via systemd (journalctl) OR Docker.
+
+**Via Systemd (Recommended):**
 ```bash
 journalctl --user -u framed-tv -f
 ```
 
-### Browser opening (optional)
-
-Systemd services should **not open browsers**.
-If you want that behavior, create a **separate alias**:
-
+**Via Docker:**
 ```bash
-alias framed-tv-open="xdg-open http://localhost:1507"
+docker logs -f framed-tv
 ```
-
-This keeps responsibilities clean.
-

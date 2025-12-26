@@ -63,7 +63,13 @@ docker build -t framed-tv .
 docker run -p 1507:1507 framed-tv
 ```
 
-### Option 3: Manual Installation (Development)
+### Option 3: Run as a Background Service
+
+For a robust, "set and forget" installation that starts on boot and runs in the background, you can set up a **systemd user service** that manages the Docker container.
+
+👉 **[Read the Service Setup Guide](service-launch.md)**
+
+### Option 4: Manual Installation (Development)
 
 Requires [Node.js](https://nodejs.org/) (v18+).
 
