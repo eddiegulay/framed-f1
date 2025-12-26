@@ -102,7 +102,7 @@ Systemd services should **not open browsers**.
 If you want that behavior, create a **separate alias**:
 
 ```bash
-alias framed-tv-open="xdg-open http://localhost:5173"
+alias framed-tv-open="xdg-open http://localhost:1507"
 ```
 
 This keeps responsibilities clean.
