@@ -1,8 +1,8 @@
-# The Framed Stream 🎬
+# The Framed Stream
 
-A cinematic live sports streaming platform that transforms raw IPTV feeds into immersive, atmospheric viewing experiences. This application uses a split-architecture design with a **React** frontend for the UI and an **Express** backend to handle proxying and header manipulation, allowing for seamless playback of streams that usually enforce strict CORS or Referer policies.
+A cinematic iptv streaming platform that transforms raw IPTV feeds into immersive, atmospheric viewing experiences. This application uses a split-architecture design with a **React** frontend for the UI and an **Express** backend to handle proxying and header manipulation, allowing for seamless playback of streams that usually enforce strict CORS or Referer policies.
 
-## ✨ Features
+## Features
 
 - **Cinematic Interface**: Stadium-inspired gradients and glassmorphic UI elements.
 - **IPTV Category Browsing**: Integrated browsing of categorized IPTV channels (Animation, Sports, Movies, etc.).
@@ -12,7 +12,7 @@ A cinematic live sports streaming platform that transforms raw IPTV feeds into i
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 The project consists of two main parts that must run simultaneously:
 
@@ -27,7 +27,7 @@ The project consists of two main parts that must run simultaneously:
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -74,7 +74,7 @@ Once both are running, open your browser to **[http://localhost:5173](http://loc
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Backend Options
 - **Port**: Set the `PORT` environment variable to change the backend port (default: 3000).
@@ -91,7 +91,7 @@ const CATEGORIES = [
 ];
 ```
 
-## 🛠 Troubleshooting
+## Troubleshooting
 
 **Stream not loading?**
 - Check the console in the browser developer tools.
@@ -102,6 +102,11 @@ const CATEGORIES = [
 - Ensure you possess the rights to view the content.
 - The proxy attempts to handle CORS, but extremely strict servers might still reject the request.
 
+## Known Issues
+
+- Some streams may be geo-locked or require specific headers that the generic proxy doesn't handle.
+- The backend server may not be able to handle high traffic or large playlists.
+- The frontend may not be able to handle high traffic or large playlists.
 ---
 
 ## License
