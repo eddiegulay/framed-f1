@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { X, Search } from 'lucide-react';
 
-const ChannelList = ({ channels, onSelectChannel, activeChannel }) => {
+const ChannelList = ({ channels, onSelectChannel, activeChannel, onClose }) => {
     const [filter, setFilter] = useState('');
 
     const filteredChannels = channels.filter(ch =>
@@ -11,21 +12,20 @@ const ChannelList = ({ channels, onSelectChannel, activeChannel }) => {
         <div className="sidebar">
             <div className="sidebar-header">
                 <h2>Channels ({filteredChannels.length})</h2>
-                <input
-                    type="text"
-                    placeholder="Filter channels..."
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    style={{
-                        width: '100%',
-                        marginTop: '10px',
-                        padding: '5px',
-                        borderRadius: '4px',
-                        border: '1px solid #444',
-                        background: '#333',
-                        color: 'white'
-                    }}
-                />
+                <button className="icon-btn" onClick={onClose} title="Close Sidebar">
+                    <X size={20} />
+                </button>
+            </div>
+            <div style={{ padding: '0 0.5rem 0.5rem' }}>
+                <div className="search-bar">
+                    <Search size={16} className="search-icon" />
+                    <input
+                        type="text"
+                        placeholder="Filter..."
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                    />
+                </div>
             </div>
             <div className="channel-list">
                 {filteredChannels.map((channel, idx) => (
@@ -46,7 +46,7 @@ const ChannelList = ({ channels, onSelectChannel, activeChannel }) => {
                     </div>
                 ))}
                 {filteredChannels.length === 0 && (
-                    <div style={{ padding: '20px', color: '#888', textAlign: 'center' }}>
+                    <div style={{ padding: '20px', color: '#666', textAlign: 'center', fontSize: '0.9rem' }}>
                         No channels found
                     </div>
                 )}
